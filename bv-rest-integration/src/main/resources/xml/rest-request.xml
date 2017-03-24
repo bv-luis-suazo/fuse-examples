@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cliente>
+	<nombre>Juan</nombre>
+	<apellido>Peres</apellido>
+	<email>juanperes@gmail.com</email>
+</cliente>
