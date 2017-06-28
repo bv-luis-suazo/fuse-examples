@@ -4,4 +4,4 @@ Ejemplos Fuse bicevida
     - Rest DSL - http://camel.apache.org/rest-dsl.html
     - xml json transform - http://camel.apache.org/xmljson.html
     - HTTP4 - http://camel.apache.org/http4.html
-    - prueba 4
+    - prueba 5
