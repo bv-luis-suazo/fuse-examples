@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    JBoss, Home of Professional Open Source
+    Copyright 2014, Red Hat, Inc. and/or its affiliates, and individual
+    contributors by the @authors tag. See the copyright.txt in the
+    distribution for a full listing of individual contributors.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+-->
+<!--
+   This is the OSGi Blueprint XML file defining the Camel context and routes.  Because the file is in the
+   OSGI-INF/blueprint directory inside our JAR, it will be automatically activated as soon as the bundle is installed.
+
+   The root element for any OSGi Blueprint file is 'blueprint' - you also see the namespace definitions for both the Blueprint
+   and the Camel namespaces.
+-->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"	
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf               http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd          http://camel.apache.org/schema/blueprint                http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+   
+    <bean class="org.apache.cxf.interceptor.LoggingOutInterceptor" id="loggingOutInterceptor"/>
+	<bean class="org.apache.cxf.interceptor.LoggingInInterceptor" id="loggingInInterceptor"/>
+   
+   <cxf:cxfEndpoint  address="http://canis.bicevida.cl:7777/WSApvJAR/WSApvEJB"
+        id="cxfServiceApv" 
+        serviceClass="cl.bicevida.apv.model.services.WSApvEJBWebService" 
+        wsdlURL="http://canis.bicevida.cl:7777/WSApvJAR/WSApvEJB?WSDL">
+        <cxf:properties>
+            <entry key="wrapped" value="true"/>            
+            <entry key="dataFormat" value="POJO"/>
+        </cxf:properties> 
+        <cxf:inInterceptors>
+            <ref component-id="loggingInInterceptor"/>
+        </cxf:inInterceptors>
+        <cxf:outInterceptors>            
+            <ref component-id="loggingOutInterceptor"/>
+		</cxf:outInterceptors>       
+	</cxf:cxfEndpoint>
+	
+	<!-- cxf:cxfEndpoint  address="http://canis.bicevida.cl:7777/WSApvJAR/WSApvEJB"
+        id="cxfServiceApv"       
+        xmlns:s="http://services.model.apv.bicevida.cl/"
+        serviceName="s:WSApvEJBWebServiceService"
+        endpointName="s:WSApvEJB" 
+        wsdlURL="http://canis.bicevida.cl:7777/WSApvJAR/WSApvEJB?WSDL">
+        <cxf:properties>     
+            <entry key="dataFormat" value="MESSAGE"/>
+        </cxf:properties> 
+        <cxf:inInterceptors>
+            <ref component-id="loggingInInterceptor"/>
+        </cxf:inInterceptors>
+        <cxf:outInterceptors>            
+            <ref component-id="loggingOutInterceptor"/>
+		</cxf:outInterceptors>       
+	</cxf:cxfEndpoint-->
+	
+	<bean class="cl.bicevida.esb.camel.processors.RequestApvProcessor" id="requestApvProcessor"/>
+	<bean class="cl.bicevida.esb.camel.aggregators.ClienteAggregator" id="clienteAggregator"/>
+   
+    <camelContext id="_ctx_test_2" xmlns="http://camel.apache.org/schema/blueprint">
+        <restConfiguration component="restlet" port="9090" bindingMode="json"/>
+       
+        <rest path="/bicevida">
+            <get produces="application/json" uri="/{rut}" outType="cl.bicevida.esb.services.expose.data.Cliente">
+                <to uri="direct:pruebaget"/>
+            </get>
+        </rest>
+        
+        <route id="_route_exposed_rest">
+            <from id="_from1" uri="direct:pruebaget"/>
+            <transform>
+            	<method ref="requestApvProcessor" method="transformar"/>
+            </transform>  
+            <log message="transform : ${body}"/>
+            <multicast parallelProcessing="true" strategyRef="clienteAggregator">  
+            	<to uri="direct:obtenerDatosCliente"></to>
+            	<to uri="direct:obtenerProductoApv"></to>
+            </multicast>          
+                      
+        </route>        
+        
+       <route id="_route_prodApv">
+        	<from uri="direct:obtenerProductoApv"/>
+        	<process ref="requestApvProcessor"/> 
+        	<to uri="log:routeProdApvLog?showAll=true" />        	
+        	<to uri="cxf:bean:cxfServiceApv"/>        	
+        	<convertBodyTo type="cl.bicevida.apv.model.services.ListOfProducto"/>   	
+        	<log message="response soap service ${body}"/>
+        </route>
+        
+        <!-- route id="_route_prodApv">
+        	<from uri="direct:obtenerProductoApv"/>
+        	<to uri="xslt:transform/xsl/ProductosApvRequest.xsl?saxon=true" />
+        	<to uri="log:routeProdApvLog?showAll=true" />        	
+        	<to uri="cxf:bean:cxfServiceApv"/>        	
+        	<convertBodyTo type="cl.bicevida.apv.model.services.ListOfProducto"/>   	
+        	<log message="response soap service ${body}"/>
+        </route-->
+        
+        <route id="_route_datosCliente">
+        	<from uri="direct:obtenerDatosCliente"/>        	
+        	<setHeader headerName="HTTP_METHOD" id="_header_Method_">
+                <constant>GET</constant>
+            </setHeader>
+        	<setHeader headerName="CamelHttpPath" id="_Path_obtenerCliente">
+                <simple>/bicevida/transversales/cliente/${header.rut}</simple>
+            </setHeader>
+        	<to uri="http4:esbdev.bicevida.cl?bridgeEndpoint=true" />
+        	<convertBodyTo type="java.lang.String"/>
+        	<log message="response REST Service ${body}"/>
+        	<unmarshal>
+        		<json library="Jackson" unmarshalTypeName="cl.bicevida.esb.services.data.Cliente" />
+        	</unmarshal>     	
+        	<log message="objecto Generado ${body}"/>
+        </route>
+        
+    </camelContext>
+</blueprint>
